@@ -70,6 +70,9 @@ AIMNet-X2D/
 ```
 
 
+## Authors
+Rohit Nandakumar, Roman Zubatyuk, Olesandr Isayev
+
 ## License
 
 [MIT License]
