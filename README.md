@@ -37,7 +37,7 @@ cd aimnet-x2d
 
 2. Create a conda environment:
 ```bash
-conda create -n aimnet-x2d python=3.9
+conda create -n aimnet-x2d python=3.12
 conda activate aimnet-x2d
 ```
 
