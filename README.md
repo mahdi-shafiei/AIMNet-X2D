@@ -31,7 +31,7 @@ AIMNet-X2D is a Graph Neural Network-based model for molecular property predicti
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/aimnet-x2d.git
+git clone https://github.com/isayevlab/aimnet-x2d.git
 cd aimnet-x2d
 ```
 
