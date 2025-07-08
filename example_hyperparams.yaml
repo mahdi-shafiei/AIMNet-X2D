@@ -1,0 +1,126 @@
+# QM9 Comprehensive Hyperparameter Configuration
+# This configuration includes more parameters for extensive hyperparameter search
+
+# Core model architecture
+hidden_dim:
+  type: choice
+  values: [256, 384, 512, 640, 768, 1024]
+
+num_shells:
+  type: int
+  min: 2
+  max: 5
+
+num_message_passing_layers:
+  type: int
+  min: 2
+  max: 5
+
+embedding_dim:
+  type: choice
+  values: [32, 64, 96, 128, 192, 256]
+
+# Feed-forward network
+ffn_num_layers:
+  type: int
+  min: 2
+  max: 4
+
+ffn_hidden_dim:
+  type: choice
+  values: [256, 384, 512, 640, 768, 1024]
+
+# Attention parameters (for attention pooling)
+attention_num_heads:
+  type: choice
+  values: [2, 4, 6, 8]
+
+attention_temperature:
+  type: float
+  min: 0.5
+  max: 2.0
+
+# Training hyperparameters
+learning_rate:
+  type: float
+  min: 0.00001
+  max: 0.002
+  log: true
+
+batch_size:
+  type: choice
+  values: [32, 48, 64, 96, 128]
+
+epochs:
+  type: choice
+  values: [1]
+
+# Regularization and dropout
+ffn_dropout:
+  type: float
+  min: 0.0
+  max: 0.3
+
+shell_conv_dropout:
+  type: float
+  min: 0.0
+  max: 0.2
+
+shell_conv_num_mlp_layers:
+  type: int
+  min: 2
+  max: 4
+
+# Architecture choices
+pooling_type: ["attention", "mean", "max", "sum"]
+activation_type: ["relu", "leakyrelu", "elu", "silu", "gelu"]
+
+# Learning rate scheduling
+lr_scheduler: ["ReduceLROnPlateau", "CosineAnnealingLR", "StepLR"]
+
+lr_reduce_factor:
+  type: float
+  min: 0.2
+  max: 0.8
+
+lr_patience:
+  type: int
+  min: 3
+  max: 20
+
+lr_cosine_t_max:
+  type: int
+  min: 5
+  max: 15
+
+lr_step_size:
+  type: int
+  min: 10
+  max: 30
+
+lr_step_gamma:
+  type: float
+  min: 0.1
+  max: 0.5
+
+# Early stopping
+patience:
+  type: int
+  min: 15
+  max: 40
+
+# Evidential loss parameters
+evidential_lambda:
+  type: float
+  min: 0.1
+  max: 3.0
+
+# Layer-wise learning rate decay
+# layer_wise_lr_decay: [true, false]
+# lr_decay_factor:
+#   type: float
+#   min: 0.6
+#   max: 0.9
+
+# Usage:
+# python main.py [your existing args] --hyperparameter_file qm9_comprehensive_hyperparams.yaml --num_trials 50
