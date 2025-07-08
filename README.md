@@ -53,25 +53,56 @@ After installation, see [USAGE.md](USAGE.md) for detailed instructions on how to
 ## Project Structure
 
 ```
-AIMNet-X2D/
-├── data/                  # Directory for datasets
-├── models/                # Directory for saved models
-├── sample-data/           # Sample datasets for testing
-├── src/                   # Source code
-│   ├── config.py          # Configuration handling
-│   ├── datasets.py        # Dataset processing
-│   ├── hyperparameter.py  # Hyperparameter optimization
-│   ├── inference.py       # Inference functionality
-│   ├── main.py            # Main entry point
-│   ├── model.py           # Model architecture
-│   ├── training.py        # Training logic
-│   └── utils.py           # Utility functions
-└── requirements.txt       # Package dependencies
+aimnet-x2d/
+├── main.py                    # Main entry point
+├── src/                       # Modular source code
+│   ├── config/               # Configuration management
+│   │   ├── args.py           # Argument parsing
+│   │   ├── validation.py     # Input validation
+│   │   ├── experiment.py     # Experiment tracking
+│   │   └── paths.py          # Path management
+│   ├── datasets/             # Data handling
+│   │   ├── molecular.py      # PyTorch Geometric datasets
+│   │   ├── features.py       # Molecular feature computation
+│   │   ├── loaders.py        # Data loaders
+│   │   └── io.py             # File I/O operations
+│   ├── models/               # Model architecture
+│   │   ├── gnn.py            # Main GNN model
+│   │   ├── layers.py         # Neural network layers
+│   │   ├── pooling.py        # Graph pooling mechanisms
+│   │   ├── losses.py         # Loss functions
+│   │   └── normalizers.py    # Data normalization
+│   ├── training/             # Training pipeline
+│   │   ├── trainer.py        # Training loops
+│   │   ├── evaluator.py      # Model evaluation
+│   │   ├── predictor.py      # Prediction methods
+│   │   └── extractors.py     # Feature extraction
+│   ├── inference/            # Inference pipeline
+│   │   ├── engine.py         # Inference orchestration
+│   │   ├── pipeline.py       # Processing pipeline
+│   │   ├── uncertainty.py    # Uncertainty estimation
+│   │   └── embeddings.py     # Embedding extraction
+│   ├── data/                 # Data preprocessing
+│   │   └── preprocessing.py  # SAE & scaling pipelines
+│   ├── main/                 # Execution management
+│   │   ├── runner.py         # Main execution logic
+│   │   ├── cli.py            # Command-line interface
+│   │   ├── hyperopt.py       # Hyperparameter optimization
+│   │   └── utils.py          # Execution utilities
+│   └── utils/                # General utilities
+│       ├── distributed.py    # Multi-GPU utilities
+│       ├── optimization.py   # Training optimizations
+│       ├── activation.py     # Activation functions
+│       └── random.py         # Reproducibility tools
+├── sample-data/              # Example datasets
+├── requirements.txt          # Python dependencies
+├── USAGE.md                  # Detailed usage guide
+└── README.md                 # This file
 ```
 
 
 ## Authors
-Rohit Nandakumar, Roman Zubatyuk, Olesandr Isayev
+Rohit Nandakumar, Roman Zubatyuk, Olexandr Isayev
 
 ## License
 

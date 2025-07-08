@@ -15,7 +15,7 @@ Your input data should be in CSV format with:
 Train a model to predict a single property:
 
 ```bash
-python src/main.py \
+python main.py \
   --data_path sample-data/qm9/qm9_whole.csv \
   --smiles_column smiles \
   --target_column homo \
@@ -34,7 +34,7 @@ python src/main.py \
 Train a model with SAE normalization for an extrinsic property:
 
 ```bash
-python src/main.py \
+python main.py \
   --data_path sample-data/qm9/qm9_whole.csv \
   --smiles_column smiles \
   --target_column u0_atom \
@@ -60,7 +60,7 @@ Applying SAE to intrinsic properties may hurt model performance. The normalizati
 Predict multiple properties simultaneously:
 
 ```bash
-python src/main.py \
+python main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -83,7 +83,7 @@ When using `--calculate_sae` with `--task_type multitask`, you MUST specify `--s
 For datasets that don't fit in memory:
 
 ```bash
-python src/main.py \
+python main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -105,7 +105,7 @@ python src/main.py \
 Use a pre-trained model to start from for a new target property:
 
 ```bash
-python src/main.py \
+python main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -122,7 +122,7 @@ python src/main.py \
 For more advanced transfer learning with layer-wise learning rate decay:
 
 ```bash
-python src/main.py \
+python main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -131,7 +131,6 @@ python src/main.py \
   --transfer_learning models/qm9_model.pth \
   --layer_wise_lr_decay \
   --lr_decay_factor 0.8 \
-  --reset_output_layer \
   --model_save_path models/transfer_model_decay.pth \
   --batch_size 64 \
   --epochs 30 \
@@ -215,7 +214,6 @@ python src/main.py \
 | `--freeze_pretrained` | Freeze pretrained layers except output layer |
 | `--freeze_layers` | Comma-separated list of layer patterns to freeze |
 | `--unfreeze_layers` | Comma-separated list of layer patterns to explicitly unfreeze |
-| `--reset_output_layer` | Reset output layer when loading pretrained model |
 | `--layer_wise_lr_decay` | Enable layer-wise learning rate decay |
 | `--lr_decay_factor` | Decay factor for layer-wise learning rate |
 
@@ -224,7 +222,7 @@ python src/main.py \
 For training on multiple GPUs, use `torchrun` (recommended over the deprecated `torch.distributed.launch`):
 
 ```bash
-torchrun --nproc_per_node=4 src/main.py \
+torchrun --nproc_per_node=4 main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -243,7 +241,7 @@ When using distributed training with iterable datasets, follow a two-step proces
 **Step 1:** First, create the HDF5 files without distributed training (set epochs to 0):
 
 ```bash
-python src/main.py \
+python main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -259,7 +257,7 @@ python src/main.py \
 **Step 2:** Then, run distributed training using the pre-created HDF5 files:
 
 ```bash
-torchrun --nproc_per_node=4 src/main.py \
+torchrun --nproc_per_node=4 main.py \
   --train_data sample-data/qm9/sample-splits/train.csv \
   --val_data sample-data/qm9/sample-splits/val.csv \
   --test_data sample-data/qm9/sample-splits/test.csv \
@@ -284,7 +282,7 @@ This approach ensures the HDF5 files are created once and then reused for distri
 For prediction on new molecules:
 
 ```bash
-python src/main.py \
+python main.py \
   --inference_csv sample-data/qm9/qm9_whole.csv \
   --inference_output results/predictions.csv \
   --model_save_path models/trained_model.pth
@@ -295,7 +293,7 @@ python src/main.py \
 For faster inference on large datasets using multiple GPUs:
 
 ```bash
-torchrun --nproc_per_node=4 src/main.py \
+torchrun --nproc_per_node=4 main.py \
   --inference_csv sample-data/qm9/qm9_whole.csv \
   --inference_output results/large_predictions.csv \
   --model_save_path models/trained_model.pth \
@@ -311,7 +309,7 @@ This will automatically split the inference workload across the GPUs and combine
 For inference with uncertainty quantification:
 
 ```bash
-python src/main.py \
+python main.py \
   --inference_csv sample-data/qm9/qm9_whole.csv \
   --inference_output results/predictions_with_uncertainty.csv \
   --model_save_path models/trained_model.pth \
