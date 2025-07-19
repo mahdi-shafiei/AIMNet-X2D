@@ -20,160 +20,6 @@ from models import WeightedL1Loss, WeightedMSELoss, EvidentialLoss, WeightedEvid
 from .evaluator import evaluate
 
 
-def train_gnn(
-    model,
-    train_loader,
-    val_loader,
-    test_loader,  # Keep test_loader for final evaluation after CV
-    num_epochs,
-    learning_rate,
-    device,
-    early_stopping=False,
-    task_type='regression',
-    mixed_precision=False,
-    num_tasks=1,
-    multitask_weights=None,
-    std_scaler=None,
-    is_ddp=False,
-    current_args=None
-):
-    """
-    Train a GNN model.
-    
-    Args:
-        model: The GNN model to train
-        train_loader: DataLoader for training data
-        val_loader: DataLoader for validation data
-        test_loader: DataLoader for test data
-        num_epochs: Number of training epochs
-        learning_rate: Base learning rate
-        device: Device to train on
-        early_stopping: Whether to use early stopping
-        task_type: Type of task ('regression' or 'multitask')
-        mixed_precision: Whether to use mixed precision training
-        num_tasks: Number of tasks for multi-task learning
-        multitask_weights: Optional weights for multi-task learning
-        std_scaler: Optional standard scaler for normalization
-        is_ddp: Whether distributed data parallel is enabled
-        current_args: Additional arguments
-        
-    Returns:
-        Trained model
-    """
-    # Initialize model weights
-    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-        model.module.init_weights()
-    else:
-        model.init_weights()
-        
-    model.train()  # Set initial train mode
-
-    # Setup optimizer based on layer-wise learning rate decay if enabled
-    if current_args.layer_wise_lr_decay:
-        model_to_use = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
-        parameter_groups = get_layer_wise_learning_rates(
-            model_to_use,
-            learning_rate, 
-            decay_factor=current_args.lr_decay_factor
-        )
-        optimizer = torch.optim.Adam(parameter_groups)
-    else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-    # Setup loss function
-    criterion = _setup_loss_function(current_args, task_type, multitask_weights)
-
-    # Setup learning rate scheduler
-    scheduler = _setup_scheduler(optimizer, current_args)
-
-    # Setup early stopping
-    patience = current_args.patience
-    best_val_loss = float('inf')
-    best_metrics = None
-    patience_counter = 0
-    best_model = None
-    best_epoch = 0
-
-    # Setup mixed precision scaler if enabled
-    scaler = torch.cuda.amp.GradScaler() if (mixed_precision and device.type == 'cuda') else None
-
-    # Track epoch times for performance monitoring
-    epoch_times = []
-    
-    for epoch in range(num_epochs):
-        epoch_start_time = time.time()
-
-        _maybe_set_epoch(train_loader, epoch)
-        model.train()
-
-        # Training loop
-        epoch_train_loss = _training_epoch(
-            model, train_loader, optimizer, criterion, device, scaler, epoch, num_epochs
-        )
-
-        # Evaluate on validation set
-        with torch.no_grad():
-            val_metrics = evaluate(
-                model,
-                val_loader,
-                criterion,
-                device,
-                task_type=task_type,
-                mixed_precision=mixed_precision,
-                num_tasks=num_tasks,
-                std_scaler=std_scaler,
-                is_ddp=is_ddp
-            )
-
-        # Update learning rate scheduler
-        if scheduler is not None:
-            if isinstance(scheduler, ReduceLROnPlateau):
-                scheduler.step(val_metrics['loss'])
-            else:
-                scheduler.step()
-
-        epoch_end_time = time.time()
-        epoch_duration = epoch_end_time - epoch_start_time
-        epoch_times.append(epoch_duration)
-
-        # Handle best model saving and early stopping (main process only)
-        stop_training = _handle_epoch_end(
-            model, val_metrics, best_val_loss, epoch, patience_counter,
-            early_stopping, patience, current_args, optimizer, device,
-            epoch_train_loss, epoch_duration, task_type, is_ddp
-        )
-
-        if stop_training:
-            break
-
-    # Load best model if available
-    if best_model is not None:
-        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-            model.module.load_state_dict({k: v.to(device) for k, v in best_model.items()})
-        else:
-            model.load_state_dict({k: v.to(device) for k, v in best_model.items()})
-
-    # Broadcast best model to all processes (for DDP)
-    if is_ddp and dist.is_initialized():
-        for param in model.parameters():
-            dist.broadcast(param.data, src=0)
-
-    # Calculate average epoch time and log final metrics
-    if len(epoch_times) > 0:
-        avg_epoch_time = sum(epoch_times) / len(epoch_times)
-    else:
-        avg_epoch_time = 0
-
-    if best_metrics is not None and (not dist.is_initialized() or safe_get_rank() == 0):
-        if current_args.enable_wandb:
-            wandb.run.summary.update(best_metrics)
-            wandb.run.summary.update({"avg_epoch_time": avg_epoch_time})
-
-    # Clean up
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    return model
 
 
 def _setup_loss_function(current_args, task_type, multitask_weights):
@@ -336,40 +182,221 @@ def _training_epoch(model, train_loader, optimizer, criterion, device, scaler, e
 
     return epoch_train_loss
 
+def train_gnn(
+    model,
+    train_loader,
+    val_loader,
+    test_loader,
+    num_epochs,
+    learning_rate,
+    device,
+    early_stopping=False,
+    task_type='regression',
+    mixed_precision=False,
+    num_tasks=1,
+    multitask_weights=None,
+    std_scaler=None,
+    is_ddp=False,
+    current_args=None
+):
+    """
+    Train a GNN model with properly implemented early stopping.
+    """
+    # Initialize model weights
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        model.module.init_weights()
+    else:
+        model.init_weights()
+        
+    model.train()
 
-def _handle_epoch_end(model, val_metrics, best_val_loss, epoch, patience_counter,
-                     early_stopping, patience, current_args, optimizer, device,
-                     epoch_train_loss, epoch_duration, task_type, is_ddp):
-    """Handle end-of-epoch processing including logging and early stopping."""
-    best_model = None
+    # Setup optimizer
+    if current_args.layer_wise_lr_decay:
+        model_to_use = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+        parameter_groups = get_layer_wise_learning_rates(
+            model_to_use,
+            learning_rate, 
+            decay_factor=current_args.lr_decay_factor
+        )
+        optimizer = torch.optim.Adam(parameter_groups)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    # Setup loss function and scheduler
+    criterion = _setup_loss_function(current_args, task_type, multitask_weights)
+    scheduler = _setup_scheduler(optimizer, current_args)
+
+    # Setup early stopping - FIXED INITIALIZATION
+    patience = current_args.patience
+    best_val_loss = float('inf')
     best_metrics = None
-    stop_training = False
+    patience_counter = 0
+    best_model_state = None  # Renamed for clarity
+    best_epoch = 0
 
-    if (not dist.is_initialized()) or (safe_get_rank() == 0):
-        if val_metrics['loss'] < best_val_loss:
-            best_val_loss = val_metrics['loss']
-            best_epoch = epoch + 1
-            if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-                raw_state = model.module.state_dict()
+    # Setup mixed precision scaler if enabled
+    scaler = torch.cuda.amp.GradScaler() if (mixed_precision and device.type == 'cuda') else None
+
+    # Track epoch times
+    epoch_times = []
+    
+    for epoch in range(num_epochs):
+        epoch_start_time = time.time()
+
+        _maybe_set_epoch(train_loader, epoch)
+        model.train()
+
+        # Training loop
+        epoch_train_loss = _training_epoch(
+            model, train_loader, optimizer, criterion, device, scaler, epoch, num_epochs
+        )
+
+        # Evaluate on validation set
+        with torch.no_grad():
+            val_metrics = evaluate(
+                model,
+                val_loader,
+                criterion,
+                device,
+                task_type=task_type,
+                mixed_precision=mixed_precision,
+                num_tasks=num_tasks,
+                std_scaler=std_scaler,
+                is_ddp=is_ddp
+            )
+
+        # Update learning rate scheduler
+        if scheduler is not None:
+            if isinstance(scheduler, ReduceLROnPlateau):
+                scheduler.step(val_metrics['loss'])
             else:
-                raw_state = model.state_dict()
-            best_model = {k: v.cpu() for k, v in raw_state.items()}
-            patience_counter = 0
-            best_metrics = {
-                'epoch': best_epoch,
-                **{f"val_{k}": v for k, v in val_metrics.items()},
-            }
-        else:
-            patience_counter += 1
+                scheduler.step()
 
-        # Log metrics to wandb if enabled
+        epoch_end_time = time.time()
+        epoch_duration = epoch_end_time - epoch_start_time
+        epoch_times.append(epoch_duration)
+
+        # FIXED: Handle early stopping with proper state management
+        (stop_training, best_val_loss, patience_counter, best_model_state, 
+         best_metrics, best_epoch) = _handle_epoch_end_fixed(
+            model=model,
+            val_metrics=val_metrics,
+            best_val_loss=best_val_loss,
+            patience_counter=patience_counter,
+            best_model_state=best_model_state,
+            best_metrics=best_metrics,
+            epoch=epoch,
+            early_stopping=early_stopping,
+            patience=patience,
+            current_args=current_args,
+            optimizer=optimizer,
+            device=device,
+            epoch_train_loss=epoch_train_loss,
+            epoch_duration=epoch_duration,
+            task_type=task_type,
+            is_ddp=is_ddp
+        )
+
+        if stop_training:
+            if is_main_process():
+                print(f"Early stopping triggered at epoch {epoch + 1}")
+                print(f"Best validation loss: {best_val_loss:.6f} at epoch {best_epoch}")
+            break
+
+    # FIXED: Load best model if early stopping was used
+    if early_stopping and best_model_state is not None:
+        if is_main_process():
+            print(f"Loading best model from epoch {best_epoch}")
+        
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+            model.module.load_state_dict(best_model_state)
+        else:
+            model.load_state_dict(best_model_state)
+
+    # Broadcast best model to all processes (for DDP)
+    if is_ddp and dist.is_initialized():
+        for param in model.parameters():
+            dist.broadcast(param.data, src=0)
+
+    # Log final metrics
+    if len(epoch_times) > 0:
+        avg_epoch_time = sum(epoch_times) / len(epoch_times)
+        if is_main_process():
+            print(f"Average epoch time: {avg_epoch_time:.2f} seconds")
+
+    if best_metrics is not None and is_main_process():
+        if current_args.enable_wandb:
+            wandb.run.summary.update(best_metrics)
+            wandb.run.summary.update({"avg_epoch_time": avg_epoch_time})
+
+    # Clean up
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    return model
+
+
+def _handle_epoch_end_fixed(
+    model, val_metrics, best_val_loss, patience_counter, best_model_state,
+    best_metrics, epoch, early_stopping, patience, current_args, optimizer,
+    device, epoch_train_loss, epoch_duration, task_type, is_ddp
+):
+    """
+    FIXED: Handle end-of-epoch processing with proper return values.
+    
+    Returns:
+        Tuple of (stop_training, best_val_loss, patience_counter, 
+                 best_model_state, best_metrics, best_epoch)
+    """
+    stop_training = False
+    current_val_loss = val_metrics['loss']
+    best_epoch = epoch + 1  # Default to current epoch
+
+    # Only main process handles early stopping logic
+    if (not dist.is_initialized()) or (safe_get_rank() == 0):
+        
+        # Check if this is the best model so far
+        if current_val_loss < best_val_loss:
+            # Update best metrics
+            best_val_loss = current_val_loss
+            best_epoch = epoch + 1
+            patience_counter = 0  # Reset patience
+            
+            # Save best model state
+            if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+                best_model_state = {k: v.cpu().clone() for k, v in model.module.state_dict().items()}
+            else:
+                best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            
+            # Update best metrics for logging
+            best_metrics = {
+                'best_epoch': best_epoch,
+                'best_val_loss': best_val_loss,
+                **{f"best_val_{k}": v for k, v in val_metrics.items()},
+            }
+            
+            if is_main_process():
+                print(f"✓ New best model at epoch {best_epoch}: val_loss = {best_val_loss:.6f}")
+                
+        else:
+            # No improvement
+            patience_counter += 1
+            if is_main_process():
+                print(f"No improvement for {patience_counter}/{patience} epochs")
+
+        # Log current epoch metrics
+        _print_epoch_progress(epoch, val_metrics, epoch_train_loss, optimizer, task_type)
+
+        # Log to wandb if enabled
         if current_args.enable_wandb:
             wandb_dict = {
                 "epoch": epoch + 1,
                 "train_loss": epoch_train_loss,
                 "learning_rate": optimizer.param_groups[0]['lr'],
-                "val_loss": val_metrics['loss'],
-                "epoch_time": epoch_duration
+                "val_loss": current_val_loss,
+                "epoch_time": epoch_duration,
+                "patience_counter": patience_counter,
+                "best_val_loss": best_val_loss,
             }
 
             if task_type == 'multitask':
@@ -395,21 +422,35 @@ def _handle_epoch_end(model, val_metrics, best_val_loss, epoch, patience_counter
             if is_main_process():
                 wandb.log(wandb_dict)
 
-        # Print progress
-        _print_epoch_progress(epoch, val_metrics, epoch_train_loss, optimizer, task_type)
-
-        # Check early stopping
+        # Check early stopping condition
         if early_stopping and patience_counter >= patience:
-            print(f"Early stopping triggered after {epoch + 1} epochs.")
+            if is_main_process():
+                print(f"🛑 Early stopping triggered! No improvement for {patience} epochs.")
+                print(f"Best validation loss: {best_val_loss:.6f} at epoch {best_epoch}")
             stop_training = True
 
-    # Broadcast early stopping signal to all processes (for DDP)
+    # Broadcast early stopping decision to all processes (for DDP)
     if is_ddp and dist.is_initialized():
+        # Create tensors for broadcasting
         stop_tensor = torch.tensor([1 if stop_training else 0], dtype=torch.uint8, device=device)
+        best_loss_tensor = torch.tensor([best_val_loss], dtype=torch.float, device=device)
+        patience_tensor = torch.tensor([patience_counter], dtype=torch.int, device=device)
+        best_epoch_tensor = torch.tensor([best_epoch], dtype=torch.int, device=device)
+        
+        # Broadcast from rank 0
         dist.broadcast(stop_tensor, src=0)
+        dist.broadcast(best_loss_tensor, src=0)
+        dist.broadcast(patience_tensor, src=0)
+        dist.broadcast(best_epoch_tensor, src=0)
+        
+        # Update values on non-main processes
         stop_training = stop_tensor.item() == 1
+        best_val_loss = best_loss_tensor.item()
+        patience_counter = patience_tensor.item()
+        best_epoch = best_epoch_tensor.item()
 
-    return stop_training
+    return (stop_training, best_val_loss, patience_counter, 
+            best_model_state, best_metrics, best_epoch)
 
 
 def _print_epoch_progress(epoch, val_metrics, epoch_train_loss, optimizer, task_type):
