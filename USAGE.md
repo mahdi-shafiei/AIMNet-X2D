@@ -137,86 +137,6 @@ python main.py \
   --early_stopping
 ```
 
-## Key Command Line Arguments
-
-### Data Loading
-
-| Argument | Description |
-|----------|-------------|
-| `--data_path` | Path to single CSV file |
-| `--train_data` | CSV file for train set |
-| `--val_data` | CSV file for validation set |
-| `--test_data` | CSV file for test set |
-| `--smiles_column` | Column name for SMILES strings |
-| `--target_column` | Column name for target value in single-task mode |
-| `--multi_target_columns` | Comma-separated list of target columns for multi-task mode |
-| `--train_split` | Fraction for training set (when using `--data_path`) |
-| `--val_split` | Fraction for validation set (when using `--data_path`) |
-| `--test_split` | Fraction for test set (when using `--data_path`) |
-
-### Model Architecture
-
-| Argument | Description |
-|----------|-------------|
-| `--hidden_dim` | Hidden dimension size |
-| `--num_shells` | Number of hops for message passing |
-| `--num_message_passing_layers` | Number of message passing layers |
-| `--ffn_hidden_dim` | Feed-forward network hidden dimension |
-| `--ffn_num_layers` | Number of feed-forward layers |
-| `--pooling_type` | Type of graph pooling (attention, mean, max, sum) |
-| `--embedding_dim` | Embedding dimension for atom features |
-| `--shell_conv_num_mlp_layers` | Number of MLP layers in shell convolution |
-| `--shell_conv_dropout` | Dropout rate for shell convolution |
-| `--attention_num_heads` | Number of attention heads |
-| `--attention_temperature` | Initial temperature for attention |
-| `--activation_type` | Type of activation function (relu, leakyrelu, elu, gelu, silu) |
-
-### Training Parameters
-
-| Argument | Description |
-|----------|-------------|
-| `--task_type` | Type of task (regression, multitask) |
-| `--learning_rate` | Learning rate |
-| `--epochs` | Number of training epochs |
-| `--batch_size` | Batch size |
-| `--early_stopping` | Enable early stopping |
-| `--patience` | Early stopping patience |
-| `--lr_scheduler` | Learning rate scheduler |
-| `--mixed_precision` | Enable mixed precision training |
-| `--num_workers` | Number of data loading worker processes |
-| `--model_save_path` | Where to save the trained model |
-
-### Advanced Features
-
-| Argument | Description |
-|----------|-------------|
-| `--calculate_sae` | Enable SAE normalization |
-| `--sae_subtasks` | Comma-separated list of subtask indices for SAE (0-indexed) |
-| `--iterable_dataset` | Use HDF5+IterableDataset for large data |
-| `--train_hdf5` | Path to train HDF5 file |
-| `--val_hdf5` | Path to validation HDF5 file |
-| `--test_hdf5` | Path to test HDF5 file |
-| `--use_partial_charges` | Enable partial charge calculations |
-| `--use_stereochemistry` | Enable stereochemical features |
-| `--output_partial_charges` | Path to save partial charges CSV |
-| `--num_gpu_devices` | Number of GPU devices for DDP |
-| `--enable_wandb` | Enable Weights & Biases logging |
-| `--hyperparameter_file` | YAML file with hyperparameter configuration |
-| `--num_trials` | Number of trials for hyperparameter search |
-| `--save_embeddings` | Extract and save molecular embeddings |
-| `--embeddings_output_path` | Path for saved embeddings |
-
-### Transfer Learning Parameters
-
-| Argument | Description |
-|----------|-------------|
-| `--transfer_learning` | Path to pretrained model for transfer learning |
-| `--freeze_pretrained` | Freeze pretrained layers except output layer |
-| `--freeze_layers` | Comma-separated list of layer patterns to freeze |
-| `--unfreeze_layers` | Comma-separated list of layer patterns to explicitly unfreeze |
-| `--layer_wise_lr_decay` | Enable layer-wise learning rate decay |
-| `--lr_decay_factor` | Decay factor for layer-wise learning rate |
-
 ## Distributed Training
 
 For training on multiple GPUs, use `torchrun` (recommended over the deprecated `torch.distributed.launch`):
@@ -333,3 +253,84 @@ python main.py \
   --model_save_path models/trained_model.pth \
   --mc_samples 30
 ```
+
+
+## Key Command Line Arguments
+
+### Data Loading
+
+| Argument | Description |
+|----------|-------------|
+| `--data_path` | Path to single CSV file |
+| `--train_data` | CSV file for train set |
+| `--val_data` | CSV file for validation set |
+| `--test_data` | CSV file for test set |
+| `--smiles_column` | Column name for SMILES strings |
+| `--target_column` | Column name for target value in single-task mode |
+| `--multi_target_columns` | Comma-separated list of target columns for multi-task mode |
+| `--train_split` | Fraction for training set (when using `--data_path`) |
+| `--val_split` | Fraction for validation set (when using `--data_path`) |
+| `--test_split` | Fraction for test set (when using `--data_path`) |
+
+### Model Architecture
+
+| Argument | Description |
+|----------|-------------|
+| `--hidden_dim` | Hidden dimension size |
+| `--num_shells` | Number of hops for message passing |
+| `--num_message_passing_layers` | Number of message passing layers |
+| `--ffn_hidden_dim` | Feed-forward network hidden dimension |
+| `--ffn_num_layers` | Number of feed-forward layers |
+| `--pooling_type` | Type of graph pooling (attention, mean, max, sum) |
+| `--embedding_dim` | Embedding dimension for atom features |
+| `--shell_conv_num_mlp_layers` | Number of MLP layers in shell convolution |
+| `--shell_conv_dropout` | Dropout rate for shell convolution |
+| `--attention_num_heads` | Number of attention heads |
+| `--attention_temperature` | Initial temperature for attention |
+| `--activation_type` | Type of activation function (relu, leakyrelu, elu, gelu, silu) |
+
+### Training Parameters
+
+| Argument | Description |
+|----------|-------------|
+| `--task_type` | Type of task (regression, multitask) |
+| `--learning_rate` | Learning rate |
+| `--epochs` | Number of training epochs |
+| `--batch_size` | Batch size |
+| `--early_stopping` | Enable early stopping |
+| `--patience` | Early stopping patience |
+| `--lr_scheduler` | Learning rate scheduler |
+| `--mixed_precision` | Enable mixed precision training |
+| `--num_workers` | Number of data loading worker processes |
+| `--model_save_path` | Where to save the trained model |
+
+### Advanced Features
+
+| Argument | Description |
+|----------|-------------|
+| `--calculate_sae` | Enable SAE normalization |
+| `--sae_subtasks` | Comma-separated list of subtask indices for SAE (0-indexed) |
+| `--iterable_dataset` | Use HDF5+IterableDataset for large data |
+| `--train_hdf5` | Path to train HDF5 file |
+| `--val_hdf5` | Path to validation HDF5 file |
+| `--test_hdf5` | Path to test HDF5 file |
+| `--use_partial_charges` | Enable partial charge calculations |
+| `--use_stereochemistry` | Enable stereochemical features |
+| `--output_partial_charges` | Path to save partial charges CSV |
+| `--num_gpu_devices` | Number of GPU devices for DDP |
+| `--enable_wandb` | Enable Weights & Biases logging |
+| `--hyperparameter_file` | YAML file with hyperparameter configuration |
+| `--num_trials` | Number of trials for hyperparameter search |
+| `--save_embeddings` | Extract and save molecular embeddings |
+| `--embeddings_output_path` | Path for saved embeddings |
+
+### Transfer Learning Parameters
+
+| Argument | Description |
+|----------|-------------|
+| `--transfer_learning` | Path to pretrained model for transfer learning |
+| `--freeze_pretrained` | Freeze pretrained layers except output layer |
+| `--freeze_layers` | Comma-separated list of layer patterns to freeze |
+| `--unfreeze_layers` | Comma-separated list of layer patterns to explicitly unfreeze |
+| `--layer_wise_lr_decay` | Enable layer-wise learning rate decay |
+| `--lr_decay_factor` | Decay factor for layer-wise learning rate |
