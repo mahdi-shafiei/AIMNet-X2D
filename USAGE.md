@@ -306,7 +306,25 @@ This will automatically split the inference workload across the GPUs and combine
 
 ### Uncertainty Estimation
 
-For inference with uncertainty quantification:
+For training with uncertainty quantification, use evidential loss:
+
+```bash
+python main.py \
+  --data_path sample-data/qm9/qm9_whole.csv \
+  --smiles_column smiles \
+  --target_column homo \
+  --task_type regression \
+  --train_split 0.8 \
+  --val_split 0.1 \
+  --test_split 0.1 \
+  --model_save_path models/single_task_model_with_evidential.pth \
+  --loss_function evidential \
+  --batch_size 64 \
+  --epochs 50 \
+  --early_stopping
+```
+
+For inference with uncertainty quantification (works for all loss functions with the exception of evidential loss):
 
 ```bash
 python main.py \
