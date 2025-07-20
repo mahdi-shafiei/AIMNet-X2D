@@ -21,7 +21,6 @@ from utils import set_seed
 # Import trial utilities from separate module to avoid circular imports
 from trial_utils import setup_trial_environment, cleanup_trial_environment, cleanup_temporary_files, validate_trial_arguments
 
-
 def setup_distributed_environment(args) -> tuple:
     """
     Setup distributed training environment.
@@ -37,37 +36,44 @@ def setup_distributed_environment(args) -> tuple:
     is_ddp = False
     local_rank = 0
     world_size = 1
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Setup distributed training if multiple GPUs requested
-    if args.num_gpu_devices > 1:
-        if "LOCAL_RANK" in os.environ:
-            local_rank = int(os.environ["LOCAL_RANK"])
-            if dist.is_available():
-                try:
-                    dist.init_process_group(backend="nccl")
-                    world_size = dist.get_world_size()
-                    is_ddp = True
-                    torch.cuda.set_device(local_rank)
-                    device = torch.device("cuda", local_rank)
-                    print(f"[DDP] Initialized: rank={dist.get_rank()}, "
-                          f"local_rank={local_rank}, world_size={world_size}")
-                except Exception as e:
-                    print(f"[DDP] Failed to initialize: {e}")
-                    print("Falling back to single GPU training")
-                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            else:
-                print("torch.distributed not available, falling back to single GPU")
+    # Check if we're in a distributed environment
+    if "LOCAL_RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        # We're running under torchrun
+        local_rank = int(os.environ["LOCAL_RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        
+        if torch.cuda.is_available() and world_size > 1:
+            try:
+                # Initialize the process group
+                dist.init_process_group(backend="nccl")
+                
+                # CRITICAL: Set the device for this process
+                torch.cuda.set_device(local_rank)
+                device = torch.device(f"cuda:{local_rank}")
+                
+                is_ddp = True
+                
+                print(f"[DDP] Initialized: rank={dist.get_rank()}, "
+                      f"local_rank={local_rank}, world_size={world_size}, device={device}")
+                      
+            except Exception as e:
+                print(f"[DDP] Failed to initialize: {e}")
+                print("Falling back to single GPU training")
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
-            print("LOCAL_RANK not found in environment, falling back to single GPU")
+            print("CUDA not available or world_size <= 1, using CPU/single GPU")
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
+        # Not running under torchrun, single process
+        if args.num_gpu_devices > 1:
+            print("WARNING: num_gpu_devices > 1 but not running under torchrun")
+            print("Use: torchrun --nproc_per_node=N main.py ... for multi-GPU training")
+        
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"[Single-Process] Using device: {device}")
     
     return device, is_ddp, local_rank, world_size
-
 
 def setup_model_paths(args) -> None:
     """

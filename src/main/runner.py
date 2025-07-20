@@ -613,28 +613,39 @@ def _create_in_memory_data_loaders(args, datasets_info: Dict[str, Any], is_ddp: 
 def _create_hdf5_data_loaders(args, datasets_info: Dict[str, Any], is_ddp: bool,
                              local_rank: int, world_size: int) -> Dict[str, Any]:
     """Create data loaders for HDF5 datasets."""
+    
+    # Make sure we pass the correct DDP parameters
     train_loader = create_iterable_pyg_dataloader(
         hdf5_path=datasets_info["train_hdf5_path"], 
-        batch_size=args.batch_size, shuffle=True,
+        batch_size=args.batch_size, 
+        shuffle=True,
         num_workers=args.num_workers, 
         shuffle_buffer_size=args.shuffle_buffer_size,
-        ddp_enabled=is_ddp, rank=local_rank, world_size=world_size
+        ddp_enabled=is_ddp,  # This should be True for DDP
+        rank=local_rank,     # This should be the local rank
+        world_size=world_size  # This should be the world size
     )
     
     val_loader = create_iterable_pyg_dataloader(
         hdf5_path=datasets_info["val_hdf5_path"], 
-        batch_size=args.batch_size, shuffle=False,
+        batch_size=args.batch_size, 
+        shuffle=False,
         num_workers=args.num_workers, 
         shuffle_buffer_size=args.shuffle_buffer_size,
-        ddp_enabled=is_ddp, rank=local_rank, world_size=world_size
+        ddp_enabled=is_ddp,
+        rank=local_rank,
+        world_size=world_size
     )
     
     test_loader = create_iterable_pyg_dataloader(
         hdf5_path=datasets_info["test_hdf5_path"], 
-        batch_size=args.batch_size, shuffle=False,
+        batch_size=args.batch_size, 
+        shuffle=False,
         num_workers=args.num_workers, 
         shuffle_buffer_size=args.shuffle_buffer_size,
-        ddp_enabled=is_ddp, rank=local_rank, world_size=world_size
+        ddp_enabled=is_ddp,
+        rank=local_rank,
+        world_size=world_size
     )
     
     return {

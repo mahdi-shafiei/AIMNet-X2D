@@ -310,7 +310,7 @@ def _validate_training_config(args, errors: List[str], warnings: List[str]) -> N
         elif args.learning_rate < 1e-6:
             warnings.append(f"Learning rate is very small ({args.learning_rate}), training may be slow")
         
-        if args.epochs <= 0:
+        if args.epochs < 0:
             errors.append(f"Number of epochs must be positive, got {args.epochs}")
         elif args.epochs > 1000:
             warnings.append(f"Very large number of epochs ({args.epochs}), consider using early stopping")

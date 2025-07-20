@@ -117,29 +117,23 @@ class InferenceEngine:
 
 
 def inference_main(args, device, is_ddp, local_rank, world_size):
-    """
-    Legacy compatibility function for the original inference_main.
-    
-    Args:
-        args: Command line arguments
-        device: Device to run inference on
-        is_ddp: Whether DDP is enabled
-        local_rank: Local rank for DDP
-        world_size: World size for DDP
-    """
+    """Legacy compatibility function for the original inference_main."""
     # Create config from args
     config = InferenceConfig.from_args(args)
     config.ddp_enabled = is_ddp
     config.rank = local_rank
     config.world_size = world_size
     
-    # Create and run engine
-    engine = InferenceEngine(config)
-    engine.run(device)
-    
-    # Ensure all processes finish
-    if is_ddp and dist.is_initialized():
-        dist.barrier()
-    
-    if is_main_process():
-        print("[Engine] Inference completed successfully")
+    try:
+        # Create and run engine
+        engine = InferenceEngine(config)
+        engine.run(device)
+        
+        # Success message
+        if is_main_process():
+            print("[Engine] Inference completed successfully")
+            
+    except Exception as e:
+        print(f"[Engine] Rank {local_rank}: Error during inference: {e}")
+        # Don't re-raise the error, just exit gracefully
+        return

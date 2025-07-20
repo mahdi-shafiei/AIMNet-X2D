@@ -26,6 +26,47 @@ from utils.distributed import safe_get_rank, is_main_process
 
 
 class InferencePipeline:
+    def cleanup_distributed_inference(self):
+        """Clean up distributed inference resources."""
+        try:
+            if self.embedding_manager:
+                self.embedding_manager.finalize()
+            
+            if self.is_ddp and dist.is_initialized():
+                try:
+                    device = next(self.model.parameters()).device
+                    if device.type == 'cuda':
+                        dist.barrier(device_ids=[device.index])
+                    else:
+                        dist.barrier()
+                    dist.destroy_process_group()
+                except Exception as e:
+                    print(f"[Pipeline] Cleanup warning: {e}")
+            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                
+        except Exception as e:
+            print(f"[Pipeline] Cleanup error: {e}")
+
+    def cleanup_and_exit(self):
+        """Clean up and exit without hanging - SIMPLIFIED VERSION."""
+        try:
+            print(f"[Pipeline] Rank {self.rank}: Cleaning up...")
+            
+            # Just clean up CUDA, don't touch the process group
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # DON'T destroy process group - let torchrun handle it
+            print(f"[Pipeline] Rank {self.rank}: Cleanup complete")
+            
+        except Exception as e:
+            print(f"[Pipeline] Rank {self.rank}: Cleanup error: {e}")
+
+
     """Main inference pipeline that orchestrates the entire process."""
     
     def __init__(self, config: InferenceConfig):
@@ -198,51 +239,73 @@ class InferencePipeline:
         if not self.config.input_path.endswith('.csv'):
             raise ValueError("Streaming inference requires CSV input")
         
-        # Count total molecules
-        total_molecules = self._estimate_total_molecules()
+        try:
+            # Count total molecules
+            total_molecules = self._estimate_total_molecules()
+            
+            # Calculate work distribution for DDP
+            if self.is_ddp:
+                start_line, end_line, rank_molecules = self._calculate_ddp_work_distribution(total_molecules)
+            else:
+                start_line, end_line = 1, None  # Skip header
+                rank_molecules = total_molecules
+            
+            if is_main_process():
+                print(f"[Pipeline] Starting streaming inference for {rank_molecules} molecules")
+            
+            # Setup output file
+            output_file = self._setup_output_file()
+            
+            # Process in chunks
+            self._process_csv_chunks(start_line, end_line, output_file)
+            
+            # Combine DDP results if needed
+            if self.is_ddp:
+                self._combine_ddp_results(output_file)
+            
+            # Finalize embeddings if needed
+            if self.embedding_manager:
+                self.embedding_manager.finalize()
+            
+            if is_main_process():
+                print(f"[Pipeline] Streaming inference completed")
+                print(f"[Pipeline] Processed: {self.total_processed}, Valid: {self.valid_count}, Invalid: {self.invalid_count}")
         
-        # Calculate work distribution for DDP
-        if self.is_ddp:
-            start_line, end_line, rank_molecules = self._calculate_ddp_work_distribution(total_molecules)
-        else:
-            start_line, end_line = 1, None  # Skip header
-            rank_molecules = total_molecules
+        except Exception as e:
+            print(f"[Pipeline] Rank {self.rank}: Error in streaming inference: {e}")
+            raise
         
-        if is_main_process():
-            print(f"[Pipeline] Starting streaming inference for {rank_molecules} molecules")
-        
-        # Setup output file
-        output_file = self._setup_output_file()
-        
-        # Process in chunks
-        self._process_csv_chunks(start_line, end_line, output_file)
-        
-        # Combine DDP results if needed
-        if self.is_ddp:
-            self._combine_ddp_results(output_file)
-        
-        # Finalize embeddings if needed
-        if self.embedding_manager:
-            self.embedding_manager.finalize()
-        
-        if is_main_process():
-            print(f"[Pipeline] Streaming inference completed")
-            print(f"[Pipeline] Processed: {self.total_processed}, Valid: {self.valid_count}, Invalid: {self.invalid_count}")
+        finally:
+            # Always cleanup to prevent hanging
+            self.cleanup_and_exit()
     
     def _calculate_ddp_work_distribution(self, total_molecules: int) -> Tuple[int, int, int]:
-        """Calculate work distribution for DDP."""
-        lines_per_rank = total_molecules // self.world_size
-        start_line = self.rank * lines_per_rank + 1  # +1 for header
+        """Calculate work distribution for DDP - FIXED VERSION."""
+        if not self.is_ddp or self.world_size <= 1:
+            return 1, None, total_molecules  # Skip header, process all
         
-        if self.rank == self.world_size - 1:
-            end_line = total_molecules + 1  # +1 for header
+        # Distribute molecules across ranks
+        molecules_per_rank = total_molecules // self.world_size
+        remainder = total_molecules % self.world_size
+        
+        # Calculate start and end for this rank
+        if self.rank < remainder:
+            # First 'remainder' ranks get one extra molecule
+            rank_molecules = molecules_per_rank + 1
+            start_molecule = self.rank * rank_molecules
         else:
-            end_line = (self.rank + 1) * lines_per_rank + 1  # +1 for header
+            # Remaining ranks get standard amount
+            rank_molecules = molecules_per_rank
+            start_molecule = remainder * (molecules_per_rank + 1) + (self.rank - remainder) * molecules_per_rank
         
-        rank_molecules = end_line - start_line
+        end_molecule = start_molecule + rank_molecules
         
-        if is_main_process():
-            print(f"[DDP] Rank {self.rank} processing lines {start_line}-{end_line-1}: {rank_molecules} molecules")
+        # Convert to line numbers (add 1 for header)
+        start_line = start_molecule + 1  # +1 for header
+        end_line = end_molecule + 1      # +1 for header
+        
+        print(f"[DDP] Rank {self.rank}: molecules {start_molecule}-{end_molecule-1} "
+              f"(lines {start_line}-{end_line-1}): {rank_molecules} molecules")
         
         return start_line, end_line, rank_molecules
     
@@ -534,7 +597,7 @@ class InferencePipeline:
             return None
     
     def _write_chunk_results(self, chunk_df: pd.DataFrame, valid_data: dict, 
-                           predictions: np.ndarray, uncertainties: np.ndarray, output_file: str):
+                        predictions: np.ndarray, uncertainties: np.ndarray, output_file: str):
         """Write chunk results to output file."""
         if len(predictions) == 0:
             return
@@ -566,33 +629,73 @@ class InferencePipeline:
                         unc_val = uncertainties[pred_idx].item() if len(uncertainties.shape) > 1 else uncertainties[pred_idx]
                         line.append(str(unc_val))
                 
+                # 🔥 ADD THIS CRITICAL LINE:
                 f.write(','.join(line) + '\n')
-    
+            
+            f.flush()  # Ensure data is written immediately
+
     def _combine_ddp_results(self, rank_output_file: str):
-        """Combine results from all DDP ranks."""
-        if not self.is_ddp or self.rank != 0:
+        """Combine results from all DDP ranks - FIXED VERSION."""
+        if not self.is_ddp:
             return
         
-        # Wait for all ranks to finish
-        if dist.is_initialized():
-            dist.barrier()
+        # Non-main ranks just exit cleanly
+        if self.rank != 0:
+            print(f"[Pipeline] Rank {self.rank}: Finished processing, exiting...")
+            return
         
-        # Combine files
-        header = self._generate_output_header()
-        with open(self.config.output_path, 'w') as outfile:
-            outfile.write(','.join(header) + '\n')
-            
-            for rank in range(self.world_size):
-                base, ext = os.path.splitext(self.config.output_path)
-                rank_file = f"{base}_rank{rank}{ext}"
+        # Only rank 0 does file combination
+        print(f"[Pipeline] Rank 0: Waiting briefly for other ranks to finish writing...")
+        import time
+        time.sleep(3)  # Give other ranks time to finish writing
+        
+        print(f"[Pipeline] Combining results from {self.world_size} ranks...")
+        
+        # Find existing rank files
+        existing_files = []
+        for rank in range(self.world_size):
+            base, ext = os.path.splitext(self.config.output_path)
+            rank_file = f"{base}_rank{rank}{ext}"
+            if os.path.exists(rank_file):
+                existing_files.append(rank_file)
+                print(f"[Pipeline] Found: {rank_file}")
+        
+        if not existing_files:
+            print("[Pipeline] No rank files found!")
+            return
+        
+        # Simple file combination
+        total_lines = 0
+        try:
+            with open(self.config.output_path, 'w') as outfile:
+                # Get header from first file
+                with open(existing_files[0], 'r') as f:
+                    header = f.readline()
+                    outfile.write(header)
                 
-                if os.path.exists(rank_file):
-                    with open(rank_file, 'r') as infile:
-                        next(infile, None)  # Skip header
-                        for line in infile:
-                            outfile.write(line)
-                    
-                    # Clean up rank file
+                # Combine all rank files
+                for i, rank_file in enumerate(existing_files):
+                    with open(rank_file, 'r') as f:
+                        f.readline()  # Skip header
+                        lines_written = 0
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                outfile.write(line + '\n')
+                                lines_written += 1
+                                total_lines += 1
+                        print(f"[Pipeline] Added {lines_written:,} lines from rank file {i}")
+            
+            print(f"[Pipeline] SUCCESS: Combined {total_lines:,} total predictions")
+            print(f"[Pipeline] Output: {self.config.output_path}")
+            
+            # Clean up rank files
+            for rank_file in existing_files:
+                try:
                     os.remove(rank_file)
-        
-        print(f"[Pipeline] Combined DDP results into {self.config.output_path}")
+                    print(f"[Pipeline] Cleaned up: {rank_file}")
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"[Pipeline] ERROR combining files: {e}")
