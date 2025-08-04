@@ -55,6 +55,29 @@ python main.py \
 
 Applying SAE to intrinsic properties may hurt model performance. The normalization is specifically designed to account for size-extensivity in properties that scale with the number of atoms.
 
+
+### Activating Optional Features
+
+To activate our optional features (partial charges and stereochemistry), add the --use_partial_charges and/or --use_stereochemistry flags
+
+```bash
+python main.py \
+  --data_path sample-data/qm9/qm9_whole.csv \
+  --smiles_column smiles \
+  --target_column homo \
+  --task_type regression \
+  --train_split 0.8 \
+  --val_split 0.1 \
+  --test_split 0.1 \
+  --model_save_path models/single_task_model.pth \
+  --batch_size 64 \
+  --epochs 50 \
+  --early_stopping \
+  --use_partial_charges \
+  --use_stereochemistry
+```
+
+
 ### Multi-Task Learning with QM9 Dataset with custom train/val/test split
 
 Predict multiple properties simultaneously:

@@ -8,6 +8,8 @@ particularly the shell-based convolution layer for message passing.
 import torch
 import torch.nn as nn
 from typing import List
+from torch_scatter import scatter_add
+
 
 from utils.activation import get_activation_function
 
@@ -105,26 +107,63 @@ class ShellConvolutionLayer(nn.Module):
         
         return x
         
+    # def message_passing(self, atom_features: torch.Tensor, target: torch.Tensor, src: torch.Tensor) -> List[torch.Tensor]:
+    #     """
+    #     Perform multi-hop message passing.
+        
+    #     Args:
+    #         atom_features: Input atom features
+    #         target: Target atom indices
+    #         src: Source atom indices
+            
+    #     Returns:
+    #         List of aggregated features for each hop
+    #     """
+    #     expanded_atom_features = atom_features.repeat(self.num_hops, 1)
+    #     aggregated = torch.zeros_like(expanded_atom_features)
+        
+    #     if target.numel() != 0:
+    #         source_features = expanded_atom_features[src]
+    #         aggregated.index_add_(0, target, source_features)
+            
+    #     chunks = torch.split(aggregated, atom_features.shape[0], dim=0)
+    #     return chunks
+
+
     def message_passing(self, atom_features: torch.Tensor, target: torch.Tensor, src: torch.Tensor) -> List[torch.Tensor]:
         """
-        Perform multi-hop message passing.
+        Perform multi-hop message passing efficiently.
         
         Args:
-            atom_features: Input atom features
-            target: Target atom indices
-            src: Source atom indices
-            
+            atom_features: [N, D] input atom features
+            target: [E] target indices (flattened across hops, i.e., [hop_id * N + atom_id])
+            src: [E] source indices (same as target's indexing space)
+
         Returns:
-            List of aggregated features for each hop
+            List of [N, D] tensors, one per hop
         """
-        expanded_atom_features = atom_features.repeat(self.num_hops, 1)
-        aggregated = torch.zeros_like(expanded_atom_features)
-        
-        if target.numel() != 0:
-            source_features = expanded_atom_features[src]
-            aggregated.index_add_(0, target, source_features)
-            
-        chunks = torch.split(aggregated, atom_features.shape[0], dim=0)
+        num_hops = self.num_hops
+        N, D = atom_features.shape
+
+        if target.numel() == 0:
+            return [torch.zeros_like(atom_features) for _ in range(num_hops)]
+
+        hop_size = N
+
+        # Recover original source atoms from flattened index
+        true_src = src % hop_size  # [E]
+        source_features = atom_features[true_src]  # [E, D]
+
+        # Aggregate into flat [num_hops * N, D] space
+        aggregated = scatter_add(
+            source_features,
+            target,                # already offset across hops
+            dim=0,
+            dim_size=num_hops * hop_size
+        )
+
+        # Split back into [N, D] per hop
+        chunks = torch.split(aggregated, hop_size, dim=0)
         return chunks
 
 
